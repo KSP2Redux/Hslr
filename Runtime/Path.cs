@@ -40,6 +40,8 @@ namespace Hslr
         private static readonly int thicknessId = Shader.PropertyToID("_Thickness");
         private static readonly int colorId = Shader.PropertyToID("_Color");
         private static readonly int pathDataBufferId = Shader.PropertyToID("PathDataBuffer");
+        private static readonly int dashPeriodId = Shader.PropertyToID("_DashSize");
+        private static readonly int dashRatioId = Shader.PropertyToID("_DashRatio");
 
 
         private static readonly ProfilerMarker renderToMarker = new("Path.RenderTo()");
@@ -47,6 +49,16 @@ namespace Hslr
 
         public Color Color { set => material.SetColor(colorId, value); }
         public float Thickness { set => material.SetFloat(thicknessId, value); }
+        
+        public float DashPeriod
+        {
+            set => material.SetFloat(dashPeriodId, value);
+        }
+
+        public float DashRatio
+        {
+            set => material.SetFloat(dashRatioId, value);
+        }
 
         public NativeArray<PathNode> BeginWrite(int count)
         {

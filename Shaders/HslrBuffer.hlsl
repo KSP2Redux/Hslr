@@ -42,29 +42,29 @@ float GetVertThicknessSign(uint vertexID)
     return 1;
 }
 
-void GetVertNodeIdsWrapped(uint vertexID, uint nodeCount, out uint previous, out uint this, out uint next)
+void GetVertNodeIdsWrapped(uint vertexID, uint nodeCount, out uint previous, out uint thisNode, out uint next)
 {
-    this = vertexID / 6;
+    thisNode = vertexID / 6;
 
     // these verts are on the next node.
     if (IsSegmentEnd(vertexID))
     {
-        this += 1;
+        thisNode += 1;
     }
     
     // wrap end to beginning
-    this %= nodeCount;
+    thisNode %= nodeCount;
 
-    next = (this + 1) % nodeCount;
+    next = (thisNode + 1) % nodeCount;
     
-    if (this == 0)
+    if (thisNode == 0)
     {
         // wrap beginning to end
         previous = nodeCount - 1;
     }
     else
     {
-        previous = this - 1;
+        previous = thisNode - 1;
     }
 }
 

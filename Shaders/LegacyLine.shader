@@ -10,6 +10,8 @@ Shader "Hslr/LegacyLine"
         _MiterThreshold("Miter Threshold", Range(-1,1)) = 0.8
         _LoopPath ("Loop Path", Integer) = 1
         _Gamma ("Gamma", float) = 1.0
+        _DashSize ("Dash Period", float) = 0
+        _DashRatio ("Dash On-Fraction", Range(0,1)) = 0.5
     }
 
     SubShader
@@ -39,6 +41,7 @@ Shader "Hslr/LegacyLine"
                 float2 uv : TEXCOORD0;
                 float4 vertex : SV_POSITION;
                 float4 color : COLOR0;
+                float dist : TEXCOORD1;
             };
 
             sampler2D _MainTex;
@@ -46,6 +49,8 @@ Shader "Hslr/LegacyLine"
             float _Gamma;
             float _Thickness;
             float _MiterThreshold;
+            float _DashSize;
+            float _DashRatio;
 
             float2 WCorrect(float4 positionCs)
             {
@@ -122,7 +127,31 @@ Shader "Hslr/LegacyLine"
 
                 o.uv = float2((thicknessSign + 1) / 2, isSegmentEnd ? 0 : 1);
                 o.color = UnpackColor(context.thisNode.color);
+                // o.dist = context.thisNode.accumulatedArcLength;
 
+                // For dashed nodes
+                if (_DashSize > 0)
+                {
+                    // TODO: Extract this into a helper
+                    int raw_this = v.vertexID / 6 + (IsSegmentEnd(v.vertexID) ? 1 : 0);
+                    // We need to prefix sum the accumulated arc length, TODO: Look into using a compute kernel here?
+                    float4 start = UnityObjectToClipPos(PathDataBuffer[0].position);
+                    float2 p_screen = start.xy / start.w * _ScreenParams.xy;
+                    float accum = 0;
+                    for (int i =  1; i <= raw_this; i++)
+                    {
+                        float4 node = UnityObjectToClipPos(PathDataBuffer[i % _NodeCount].position);
+                        float2 node_screen = node.xy / node.w * _ScreenParams.xy;
+                        accum += distance(p_screen,node_screen);
+                        p_screen = node_screen;
+                    }
+                    o.dist = accum;
+                }
+                else
+                {
+                    o.dist = 0;
+                }
+                
                 return o;
             }
 
@@ -134,7 +163,18 @@ Shader "Hslr/LegacyLine"
 
                 // gamma correction meant for situations like using sRGB input colors on a linear render target.
                 color.xyz = pow(color.xyz, float3(_Gamma, _Gamma, _Gamma));
-
+                
+                if (_DashSize > 0)
+                {
+                    // "noots" unit from shapes
+                    float period_px = _DashSize * _Thickness *  min(_ScreenParams.x, _ScreenParams.y) / 100;
+                    float coord = i.dist / period_px;
+                    float phase = frac(coord);
+                    float w = fwidth(phase);
+                    float dash = smoothstep(0.0, w, phase) * smoothstep(_DashRatio, _DashRatio - w, phase);
+                    color.a *= dash;
+                }
+                
                 return color;
             }
             ENDHLSL
