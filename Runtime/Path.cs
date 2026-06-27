@@ -2,14 +2,17 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Unity.Collections;
 using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Serialization;
+using Object = System.Object;
 
 namespace Hslr
 {
     [Serializable]
-    public struct Path
+    public struct Path : IDisposable
     {
         public Matrix4x4 objectTrs;
         public Material material;
@@ -26,7 +29,7 @@ namespace Hslr
         ComputeBuffer buffer;
         GraphicsBuffer indexBuffer;
 
-        public List<PathNode> nodes;
+        public int nodeCount;
 
         private List<uint> indexBufferInput;
 
@@ -45,19 +48,25 @@ namespace Hslr
         public Color Color { set => material.SetColor(colorId, value); }
         public float Thickness { set => material.SetFloat(thicknessId, value); }
 
+        public NativeArray<PathNode> BeginWrite(int count)
+        {
+            EnsurePathBufferCapacity(count);
+            nodeCount = count;
+            return buffer.BeginWrite<PathNode>(0, count);
+        }
+
         public void RenderTo(CommandBuffer cb)
         {
+            if (buffer == null || nodeCount < 2) return;
+
             using var marker = renderToMarker.Auto();
 
-            EnsurePathBufferCapacity();
-            int nodesToDraw = limitCount > 0 ? Math.Min(limitCount, nodes.Count) : nodes.Count;
+            int nodesToDraw = limitCount > 0 ? Math.Min(limitCount, nodeCount) : nodeCount;
             int segmentsToDraw = loopPath ? nodesToDraw : nodesToDraw - 1;
 
             material.SetInteger(loopPathId, loopPath ? 1 : 0);
             material.SetInteger(nodeCountId, nodesToDraw);
             material.SetBuffer(pathDataBufferId, buffer);
-
-            cb.SetBufferData(buffer, nodes, 0, 0, nodesToDraw);
 
             if (useIndexBuffer)
             {
@@ -70,13 +79,16 @@ namespace Hslr
             }
         }
 
-        private void EnsurePathBufferCapacity()
+        public void EndWrite(int count) 
         {
-            if (buffer is null || buffer.count != nodes.Count)
-            {
-                buffer?.Dispose();
-                buffer = new(nodes.Count, Marshal.SizeOf<PathNode>(), ComputeBufferType.Structured, ComputeBufferMode.Immutable);
-            }
+            buffer.EndWrite<PathNode>(count);
+        }
+
+        private void EnsurePathBufferCapacity(int count)
+        {
+            if (buffer is not null && buffer.count >= count) return;
+            buffer?.Dispose();
+            buffer = new(count, Marshal.SizeOf<PathNode>(), ComputeBufferType.Structured, ComputeBufferMode.SubUpdates);
         }
 
         private void MaybeSetupIndexBuffer(CommandBuffer cb)
@@ -84,7 +96,7 @@ namespace Hslr
             using var marker = generateIndexBufferMarker.Auto();
 
             bool refillBuffer = false;
-            int requiredSize = nodes.Count * vertsPerSegment;
+            int requiredSize = nodeCount * vertsPerSegment;
             if (indexBufferInput is null || indexBufferInput.Count < requiredSize)
             {
                 indexBufferInput ??= new(requiredSize);
@@ -135,6 +147,7 @@ namespace Hslr
         {
             buffer?.Dispose();
             indexBuffer?.Dispose();
+            UnityEngine.Object.Destroy(material);
         }
     }
 }

@@ -1,9 +1,11 @@
 using System;
+using Unity.Burst;
 using UnityEngine;
 
 namespace Hslr
 {
     [Serializable]
+    [BurstCompile]
     public struct PathNode
     {
         public Vector3 position;

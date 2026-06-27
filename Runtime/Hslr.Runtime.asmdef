@@ -1,3 +1,16 @@
 {
-	"name": "Hslr.Runtime"
+    "name": "Hslr.Runtime",
+    "rootNamespace": "",
+    "references": [
+        "Unity.Burst"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }
