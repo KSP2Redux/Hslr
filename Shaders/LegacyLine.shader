@@ -175,7 +175,7 @@ Shader "Hslr/LegacyLine"
                 if (_DashSize > 0 && _DashSpacing > 0)
                 {
                     // "noots" unit from shapes
-                    float raw_period = (_DashSize + _DashSpacing) * _Thickness * min(_ScreenParams.x,_ScreenParams.y)/100;
+                    float raw_period = (_DashSize + _DashSpacing) * min(_ScreenParams.x,_ScreenParams.y)/100;
                     float space_per_period = _DashSpacing / (_DashSize + _DashSpacing);
                     float dash_per_period = 1 - space_per_period;
                     float period_count = i.total_dist / raw_period;
