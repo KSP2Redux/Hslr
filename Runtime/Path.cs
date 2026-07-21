@@ -96,6 +96,37 @@ namespace Hslr
             buffer.EndWrite<PathNode>(count);
         }
 
+        /// <summary>
+        /// Writes a single two node segment into this path, replacing any existing contents.
+        /// </summary>
+        /// <param name="start">World or object space position of the first node.</param>
+        /// <param name="end">World or object space position of the second node.</param>
+        /// <param name="startColor">Color of the first node.</param>
+        /// <param name="endColor">Color of the second node.</param>
+        public void WriteLine(Vector3 start, Vector3 end, Color startColor, Color endColor)
+        {
+            NativeArray<PathNode> nodes = BeginWrite(2);
+            nodes[0] = new PathNode { position = start, Color = startColor };
+            nodes[1] = new PathNode { position = end, Color = endColor };
+            EndWrite(2);
+
+            // A two node line is never a loop, and the whole buffer is always drawn. Resetting both
+            // here keeps a reused path from inheriting stale settings from a longer path.
+            loopPath = false;
+            limitCount = 0;
+        }
+
+        /// <summary>
+        /// Writes a single two node segment of a uniform color into this path, replacing any existing contents.
+        /// </summary>
+        /// <param name="start">World or object space position of the first node.</param>
+        /// <param name="end">World or object space position of the second node.</param>
+        /// <param name="color">Color applied to both nodes.</param>
+        public void WriteLine(Vector3 start, Vector3 end, Color color)
+        {
+            WriteLine(start, end, color, color);
+        }
+
         private void EnsurePathBufferCapacity(int count)
         {
             if (buffer is not null && buffer.count >= count) return;
