@@ -38,6 +38,7 @@ namespace Hslr
         private static readonly int loopPathId = Shader.PropertyToID("_LoopPath");
         private static readonly int nodeCountId = Shader.PropertyToID("_NodeCount");
         private static readonly int thicknessId = Shader.PropertyToID("_Thickness");
+        private static readonly int thicknessSpaceId = Shader.PropertyToID("_ThicknessSpace");
         private static readonly int colorId = Shader.PropertyToID("_Color");
         private static readonly int pathDataBufferId = Shader.PropertyToID("PathDataBuffer");
         private static readonly int dashSizeId = Shader.PropertyToID("_DashSize");
@@ -49,6 +50,8 @@ namespace Hslr
 
         public Color Color { set => material.SetColor(colorId, value); }
         public float Thickness { set => material.SetFloat(thicknessId, value); }
+        
+        public ThicknessSpace ThicknessSpace { set => material.SetInteger(thicknessSpaceId, (int)value); }
         
         public float DashSize
         {

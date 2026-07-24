@@ -7,6 +7,7 @@ Shader "Hslr/LegacyLine"
         // [Toggle(_USE_PQS_BUFFER)] _NoComputeBuffer ("Use PathDataBuffer for line data. ", float) = 0.9
         _NodeCount ("Node Count", Integer) = 0
         _Thickness ("Thickness", float) = 0.1
+        [Enum(Noots,0,Pixels,1)] _ThicknessSpace ("Thickness Space", Integer) = 0
         _MiterThreshold("Miter Threshold", Range(-1,1)) = 0.8
         _LoopPath ("Loop Path", Integer) = 1
         _Gamma ("Gamma", float) = 1.0
@@ -52,6 +53,7 @@ Shader "Hslr/LegacyLine"
             float _MiterThreshold;
             float _DashSize;
             float _DashSpacing;
+            int _ThicknessSpace;
 
             float2 WCorrect(float4 positionCs)
             {
@@ -73,18 +75,19 @@ Shader "Hslr/LegacyLine"
                 float2 current_screen = current.xy / current.w * _ScreenParams.xy;
                 float2 prev_screen = prev.xy / prev.w * _ScreenParams.xy;
                 float2 next_screen = next.xy / next.w * _ScreenParams.xy;
-
-                // "noots" unit from Shapes
-                float len = _Thickness * (min(_ScreenParams.x, _ScreenParams.y) / 100);
-
+                
+                float len = _ThicknessSpace == 0
+                                  // "noots" unit from Shapes
+                                ? _Thickness * (min(_ScreenParams.x, _ScreenParams.y) / 100)
+                                : _Thickness;
                 float2 dir = float2(0, 0);
 
-                float flip;
+                float flip = 1;
                 if (_LoopPath < 1 && thisNodeIdx == 0) {
                     // first node in non-looping path goes toward the second node.
                     dir = normalize(next_screen - current_screen);
                 }
-                else if (_LoopPath < 1 && thisNodeIdx > _NodeCount) {
+                else if (_LoopPath < 1 && thisNodeIdx == _NodeCount - 1) {
                     // last node in non-looping path goes toward second to last node.
                     dir = normalize(current_screen - prev_screen);
                 }
@@ -174,8 +177,10 @@ Shader "Hslr/LegacyLine"
                 
                 if (_DashSize > 0 && _DashSpacing > 0)
                 {
-                    // "noots" unit from shapes
-                    float raw_period = (_DashSize + _DashSpacing) * min(_ScreenParams.x,_ScreenParams.y)/100;
+                    float raw_period = _ThicknessSpace == 0
+                                        // "noots" unit from shapes
+                                        ? (_DashSize + _DashSpacing) * min(_ScreenParams.x,_ScreenParams.y)/100
+                                        : (_DashSize + _DashSpacing);
                     float space_per_period = _DashSpacing / (_DashSize + _DashSpacing);
                     float dash_per_period = 1 - space_per_period;
                     float period_count = i.total_dist / raw_period;
