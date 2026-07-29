@@ -59,6 +59,100 @@ Shader "Hslr/LegacyLine"
             {
                 return float2(positionCs.x * positionCs.w, positionCs.y * positionCs.w);
             }
+            
+            // Clip a clip-space point `p`, along the segment from `p` toward `toward`,
+            // so that the returned point lies inside the view frustum. This is
+            // Liang-Barsky parametric clipping over five homogeneous planes (near
+            // plus the four sides; the far plane is intentionally not clipped).
+            //
+            // Why we need it: an endpoint just behind the near plane, or far off to
+            // the side, projects to an extreme screen coordinate. The thick-line
+            // quad built from it then becomes a needle-thin triangle that either
+            // shoots off to infinity or rasterizes as sparse dots. Pulling the point
+            // back onto the frustum boundary keeps every emitted vertex bounded to
+            // the viewport.
+            //
+            // `cull` is set true when the segment misses the frustum entirely, in
+            // which case the return value is degenerate and the caller should drop
+            // the vertex.
+            float4 FrustumClip(float4 p, float4 toward, out bool cull)
+            {
+                cull = false;
+
+                // Signed distance of each endpoint to each clip plane. A value >= 0
+                // means the point is inside (on the visible side of) that plane.
+                // fP* is for `p`, fT* is for `toward`.
+                //   near:   w - _ProjectionParams.y  (_ProjectionParams.y is the near clip distance)
+                //   left:   x + w
+                //   right:  w - x
+                //   bottom: y + w
+                //   top:    w - y
+                float fPNear = p.w - _ProjectionParams.y;
+                float fTNear = toward.w - _ProjectionParams.y;
+                float fPLeft = p.x + p.w;
+                float fTLeft = toward.x + toward.w;
+                float fPRight = p.w - p.x;
+                float fTRight = toward.w - toward.x;
+                float fPBottom = p.y + p.w;
+                float fTBottom = toward.y + toward.w;
+                float fPTop = p.w - p.y;
+                float fTTop = toward.w - toward.y;
+
+                // Liang-Barsky parameters along the segment, with t = 0 at `p` and
+                // t = 1 at `toward`. tMax is the latest entering crossing (the point
+                // where the segment finishes entering the frustum) and starts at 0.
+                // tMin is the earliest leaving crossing (where it starts to exit) and
+                // starts at 1. The clipped-in span is [tMax, tMin].
+                float tMax = 0;
+                float tMin = 1;
+
+                // For one plane, classify the crossing by which side each endpoint is
+                // on. `t` is the plane-crossing parameter along the segment.
+                //   p outside, toward inside  -> segment enters here, pull tMax up.
+                //   p inside,  toward outside -> segment leaves here, pull tMin down.
+                //   both outside              -> segment cannot cross into the frustum
+                //                                on this plane, force an empty span so
+                //                                the tMax > tMin test below culls.
+                //   both inside               -> plane imposes no constraint.
+                #define FRUSTUM_CLIP(PLANE) \
+                    do {\
+                    if (fP ## PLANE < 0 && fT ## PLANE >= 0) \
+                    { \
+                      float t = fP ## PLANE / (fP ## PLANE - fT ## PLANE);\
+                      tMax = max(t,tMax);\
+                    } else if (fP ## PLANE >= 0 && fT ## PLANE < 0) { \
+                      float t = fP ## PLANE / (fP ## PLANE - fT ## PLANE);\
+                      tMin = min(t,tMin);\
+                    } else if (fP ## PLANE < 0 && fT ## PLANE < 0) { \
+                        tMax = 1;\
+                        tMin = 0;\
+                    }} while (0)
+
+                FRUSTUM_CLIP(Near);
+                FRUSTUM_CLIP(Left);
+                FRUSTUM_CLIP(Right);
+                FRUSTUM_CLIP(Bottom);
+                FRUSTUM_CLIP(Top);
+                #undef FRUSTUM_CLIP
+
+                // Empty span: the entering side is past the leaving side, so no part
+                // of the segment is inside the frustum. Cull.
+                if (tMax > tMin)
+                {
+                    cull = true;
+                    return float4(0,0,0,0);
+                }
+
+                // tMax > 0 means `p` itself started outside and the segment had to
+                // travel to tMax before entering. Return that boundary point.
+                if (tMax > 0)
+                {
+                    return lerp(p, toward, tMax);
+                }
+
+                // `p` was already inside on every plane. Leave it untouched.
+                return p;
+            }
 
             v2f vert (appdata v)
             {
@@ -71,6 +165,29 @@ Shader "Hslr/LegacyLine"
                 float4 prev = UnityObjectToClipPos(context.prevNode.position);
                 float4 current = UnityObjectToClipPos(context.thisNode.position);
                 float4 next = UnityObjectToClipPos(context.nextNode.position);
+                float4 partner = IsSegmentEnd(v.vertexID) ? prev : next;
+                
+                // Clip this vertex against the frustum. `current` is clipped toward
+                // its `partner` endpoint, and the degenerate return (with `cull`)
+                // drops the whole vertex when the segment misses the frustum.
+                //
+                // `prev` and `next` are also clipped, each toward `current`, so that
+                // both ends of a segment see the SAME clipped endpoint positions when
+                // they build the screen-space miter direction below. If we left them
+                // unclipped, a behind-camera neighbour would project flipped for one
+                // end but not the other. The two ends would then disagree on the miter
+                // direction, twisting the end quad into a bowtie that backface culling
+                // reduces to a single stray triangle. We ignore their `cull` flags -
+                // only `current`'s own visibility decides whether this vertex lives.
+                bool cull, ignore;
+                prev = FrustumClip(prev, current, ignore);
+                next = FrustumClip(next, current, ignore);
+                current = FrustumClip(current, partner, cull);
+                if (cull)
+                {
+                    o.vertex = float4(0,0,0,0);
+                    return o;
+                }
 
                 float2 current_screen = current.xy / current.w * _ScreenParams.xy;
                 float2 prev_screen = prev.xy / prev.w * _ScreenParams.xy;
