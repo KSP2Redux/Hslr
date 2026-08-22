@@ -2,8 +2,8 @@ namespace Hslr
 {
     public enum ThicknessSpace
     {
-        Noots = 0,
+        Meters = 0,
         Pixels = 1,
-        Meters = 2
+        Noots = 2
     }
 }

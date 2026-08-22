@@ -7,7 +7,7 @@ Shader "Hslr/LegacyLine"
         // [Toggle(_USE_PQS_BUFFER)] _NoComputeBuffer ("Use PathDataBuffer for line data. ", float) = 0.9
         _NodeCount ("Node Count", Integer) = 0
         _Thickness ("Thickness", float) = 0.1
-        [Enum(Noots,0,Pixels,1)] _ThicknessSpace ("Thickness Space", Integer) = 0
+        [Enum(Meters,0,Pixels,1,Noots,2)] _ThicknessSpace ("Thickness Space", Integer) = 2
         _MiterThreshold("Miter Threshold", Range(-1,1)) = 0.8
         _LoopPath ("Loop Path", Integer) = 1
         _Gamma ("Gamma", float) = 1.0
@@ -193,10 +193,11 @@ Shader "Hslr/LegacyLine"
                 float2 prev_screen = prev.xy / prev.w * _ScreenParams.xy;
                 float2 next_screen = next.xy / next.w * _ScreenParams.xy;
                 
-                float len = _ThicknessSpace == 0
-                                  // "noots" unit from Shapes
-                                ? _Thickness * (min(_ScreenParams.x, _ScreenParams.y) / 100)
-                                : _Thickness;
+                float len = _Thickness;
+                if (_ThicknessSpace == 2)
+                {
+                    len *= min(_ScreenParams.x, _ScreenParams.y) / 100;
+                }
                 float2 dir = float2(0, 0);
 
                 float flip = 1;
