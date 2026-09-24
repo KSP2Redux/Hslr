@@ -156,16 +156,17 @@ Shader "Hslr/LegacyLine"
 
             v2f vert (appdata v)
             {
-                v2f o;
+                v2f o = (v2f)0;
                 uint thisNodeIdx;
                 NodeContext context = ReadFromBuffer(v.vertexID, (uint)_NodeCount, thisNodeIdx);
 
                 float thicknessSign = GetVertThicknessSign(v.vertexID);
+                bool isSegmentEnd = IsSegmentEnd(v.vertexID);
 
                 float4 prev = UnityObjectToClipPos(context.prevNode.position);
                 float4 current = UnityObjectToClipPos(context.thisNode.position);
                 float4 next = UnityObjectToClipPos(context.nextNode.position);
-                float4 partner = IsSegmentEnd(v.vertexID) ? prev : next;
+                float4 partner = isSegmentEnd ? prev : next;
                 
                 // Clip this vertex against the frustum. `current` is clipped toward
                 // its `partner` endpoint, and the degenerate return (with `cull`)
@@ -177,21 +178,65 @@ Shader "Hslr/LegacyLine"
                 // unclipped, a behind-camera neighbour would project flipped for one
                 // end but not the other. The two ends would then disagree on the miter
                 // direction, twisting the end quad into a bowtie that backface culling
-                // reduces to a single stray triangle. We ignore their `cull` flags -
-                // only `current`'s own visibility decides whether this vertex lives.
-                bool cull, ignore;
-                prev = FrustumClip(prev, current, ignore);
-                next = FrustumClip(next, current, ignore);
+                // reduces to a single stray triangle. A culled neighbor instead uses
+                // the visible segment direction below.
+                bool cull, prevCulled, nextCulled;
+                prev = FrustumClip(prev, current, prevCulled);
+                next = FrustumClip(next, current, nextCulled);
                 current = FrustumClip(current, partner, cull);
                 if (cull)
                 {
-                    o.vertex = float4(0,0,0,0);
+                    o.vertex = float4(0, 0, -2, 1);
                     return o;
                 }
 
                 float2 current_screen = current.xy / current.w * _ScreenParams.xy;
-                float2 prev_screen = prev.xy / prev.w * _ScreenParams.xy;
-                float2 next_screen = next.xy / next.w * _ScreenParams.xy;
+                float2 prev_screen = current_screen;
+                float2 next_screen = current_screen;
+                if (!prevCulled)
+                {
+                    prev_screen = prev.xy / prev.w * _ScreenParams.xy;
+                }
+                if (!nextCulled)
+                {
+                    next_screen = next.xy / next.w * _ScreenParams.xy;
+                }
+
+                // Reject invalid projections before screen-space line extrusion.
+                if (!all(abs(current_screen) < 2 * _ScreenParams.xy) ||
+                    !all(abs(prev_screen) < 2 * _ScreenParams.xy) ||
+                    !all(abs(next_screen) < 2 * _ScreenParams.xy))
+                {
+                    o.vertex = float4(0, 0, -2, 1);
+                    return o;
+                }
+
+                // A culled neighbor has no valid projection. Extend the visible segment instead.
+                if (prevCulled)
+                {
+                    prev_screen = 2 * current_screen - next_screen;
+                }
+                if (nextCulled)
+                {
+                    next_screen = 2 * current_screen - prev_screen;
+                }
+
+                float2 segment = (isSegmentEnd ? prev_screen : next_screen) - current_screen;
+                if (dot(segment, segment) < 0.0001)
+                {
+                    o.vertex = float4(0, 0, -2, 1);
+                    return o;
+                }
+
+                // Distant orbits can project adjacent nodes onto the same pixel.
+                if (dot(current_screen - prev_screen, current_screen - prev_screen) < 0.0001)
+                {
+                    prev_screen = 2 * current_screen - next_screen;
+                }
+                if (dot(next_screen - current_screen, next_screen - current_screen) < 0.0001)
+                {
+                    next_screen = 2 * current_screen - prev_screen;
+                }
                 
                 float len = _Thickness;
                 if (_ThicknessSpace == 2)
@@ -223,12 +268,10 @@ Shader "Hslr/LegacyLine"
                     float2 perp_tangent = float2(-tangent.y, tangent.x);
 
                     dir = tangent;
-                    len /= dot(perp_tangent, perp_dirA);
+                    len /= max(abs(dot(perp_tangent, perp_dirA)), 0.25);
                 }
 
                 float2 normal = float2(dir.y, -dir.x);
-
-                bool isSegmentEnd = IsSegmentEnd(v.vertexID);
 
                 if(!isSegmentEnd && (flip < 0))
                 {
