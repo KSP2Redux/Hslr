@@ -1,3 +1,6 @@
+// URP version of the HSLR line shader. Same name, properties and line math as the Built-in pipeline
+// original: only the includes, the object-to-clip transform and the texture sampling changed. The pass is
+// drawn by index from command buffers (Path.RenderTo), never by URP's renderer lists.
 Shader "Hslr/LegacyLine"
 {
     Properties
@@ -17,18 +20,41 @@ Shader "Hslr/LegacyLine"
 
     SubShader
     {
-        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
+        Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Transparent" "RenderType"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
         ZWrite off
 
+        HLSLINCLUDE
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+        CBUFFER_START(UnityPerMaterial)
+            float4 _MainTex_ST;
+            float4 _Color;
+            int _NodeCount;
+            float _Thickness;
+            int _ThicknessSpace;
+            float _MiterThreshold;
+            int _LoopPath;
+            float _Gamma;
+            float _DashSize;
+            float _DashSpacing;
+        CBUFFER_END
+        ENDHLSL
+
         Pass
         {
+            Name "HslrLine"
+            Tags { "LightMode"="SRPDefaultUnlit" }
+
             HLSLPROGRAM
+            #pragma target 4.5
             #pragma vertex vert
             #pragma fragment frag
 
-            #include "UnityCG.cginc"
             #include "HslrBuffer.hlsl"
+
+            TEXTURE2D(_MainTex);
+            SAMPLER(sampler_MainTex);
 
             struct appdata
             {
@@ -46,20 +72,11 @@ Shader "Hslr/LegacyLine"
                 float total_dist  : TEXCOORD2;
             };
 
-            sampler2D _MainTex;
-            float4 _Color;
-            float _Gamma;
-            float _Thickness;
-            float _MiterThreshold;
-            float _DashSize;
-            float _DashSpacing;
-            int _ThicknessSpace;
-
             float2 WCorrect(float4 positionCs)
             {
                 return float2(positionCs.x * positionCs.w, positionCs.y * positionCs.w);
             }
-            
+
             // Clip a clip-space point `p`, along the segment from `p` toward `toward`,
             // so that the returned point lies inside the view frustum. This is
             // Liang-Barsky parametric clipping over five homogeneous planes (near
@@ -156,17 +173,17 @@ Shader "Hslr/LegacyLine"
 
             v2f vert (appdata v)
             {
-                v2f o;
+                v2f o = (v2f)0;
                 uint thisNodeIdx;
                 NodeContext context = ReadFromBuffer(v.vertexID, (uint)_NodeCount, thisNodeIdx);
 
                 float thicknessSign = GetVertThicknessSign(v.vertexID);
 
-                float4 prev = UnityObjectToClipPos(context.prevNode.position);
-                float4 current = UnityObjectToClipPos(context.thisNode.position);
-                float4 next = UnityObjectToClipPos(context.nextNode.position);
+                float4 prev = TransformObjectToHClip(context.prevNode.position);
+                float4 current = TransformObjectToHClip(context.thisNode.position);
+                float4 next = TransformObjectToHClip(context.nextNode.position);
                 float4 partner = IsSegmentEnd(v.vertexID) ? prev : next;
-                
+
                 // Clip this vertex against the frustum. `current` is clipped toward
                 // its `partner` endpoint, and the degenerate return (with `cull`)
                 // drops the whole vertex when the segment misses the frustum.
@@ -192,7 +209,7 @@ Shader "Hslr/LegacyLine"
                 float2 current_screen = current.xy / current.w * _ScreenParams.xy;
                 float2 prev_screen = prev.xy / prev.w * _ScreenParams.xy;
                 float2 next_screen = next.xy / next.w * _ScreenParams.xy;
-                
+
                 float len = _Thickness;
                 if (_ThicknessSpace == 2)
                 {
@@ -257,13 +274,13 @@ Shader "Hslr/LegacyLine"
                     // TODO: Extract this into a helper
                     int raw_this = v.vertexID / 6 + (IsSegmentEnd(v.vertexID) ? 1 : 0);
                     // We need to prefix sum the accumulated arc length, TODO: Look into using a compute kernel here?
-                    float4 start = UnityObjectToClipPos(PathDataBuffer[0].position);
+                    float4 start = TransformObjectToHClip(PathDataBuffer[0].position);
                     float2 p_screen = start.xy / start.w * _ScreenParams.xy;
                     float accum = 0;
                     float dist = 0;
                     for (int i =  1; i < _NodeCount; i++)
                     {
-                        float4 node = UnityObjectToClipPos(PathDataBuffer[i % _NodeCount].position);
+                        float4 node = TransformObjectToHClip(PathDataBuffer[i % _NodeCount].position);
                         float2 node_screen = node.xy / node.w * _ScreenParams.xy;
                         accum += distance(p_screen,node_screen);
                         p_screen = node_screen;
@@ -280,7 +297,7 @@ Shader "Hslr/LegacyLine"
                     o.dist = 0;
                     o.total_dist = 0;
                 }
-                
+
                 return o;
             }
 
@@ -288,11 +305,11 @@ Shader "Hslr/LegacyLine"
             {
                 float4 color = _Color  * i.color;
 
-                color *= tex2D(_MainTex, i.uv);
+                color *= SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, i.uv);
 
                 // gamma correction meant for situations like using sRGB input colors on a linear render target.
                 color.xyz = pow(color.xyz, float3(_Gamma, _Gamma, _Gamma));
-                
+
                 if (_DashSize > 0 && _DashSpacing > 0)
                 {
                     float raw_period = _ThicknessSpace == 0
@@ -310,10 +327,12 @@ Shader "Hslr/LegacyLine"
                     float mask = saturate(sdf / fwidth(sdf) + 0.5);
                     color.a *= mask;
                 }
-                
+
                 return color;
             }
             ENDHLSL
         }
     }
+
+    FallBack Off
 }

@@ -14,9 +14,8 @@ struct NodeContext
     NodeData prevNode;
 };
 
+// _NodeCount and _LoopPath are material properties, declared in the including shader's UnityPerMaterial cbuffer.
 StructuredBuffer<NodeData> PathDataBuffer;
-int _NodeCount;
-int _LoopPath;
 
 bool IsSegmentEnd(uint vertexID)
 {
